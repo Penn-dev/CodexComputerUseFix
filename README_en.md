@@ -46,6 +46,24 @@ Building and running the probe do not automatically install or update the DLL in
 
 ## Usage
 
+### Status, installation, and update monitoring
+
+`manage.ps1` in the repository root is the unified entry point. It is not a resident service and does not call a model:
+
+```powershell
+.\manage.ps1 status
+.\manage.ps1 install
+.\manage.ps1 uninstall
+.\manage.ps1 monitor-install
+.\manage.ps1 monitor-uninstall
+```
+
+`status` locates the latest Codex Computer Use runtime and reports the capture compatibility DLL separately from Windows native CU routing. It also reads the state of the related public `openai/codex` issues by default; a network failure is reported as `unavailable` and does not block local checks.
+
+`monitor-install` creates a per-user scheduled task that runs at sign-in and daily at 10:00. `StartWhenAvailable` catches a missed scheduled time, while the state file limits network checks to once per day. It only notifies when the runtime, owned patch, routing configuration, or open/closed state of a related issue changes. It never installs, removes, or modifies Codex automatically. `monitor-uninstall` removes the task. State and logs are stored under `%LOCALAPPDATA%\CodexComputerUseFix`.
+
+`official-path-candidate-needs-live-validation` means that the generated configuration now includes the Windows native surface. A read-only live CU check is still required before removing any compatibility measure.
+
 ### Installation
 
 Locate the `codex-computer-use.exe` used by your Computer Use runtime. Replace the placeholder path below with its actual path.

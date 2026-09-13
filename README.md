@@ -46,6 +46,24 @@ Set-Location .\capture-compat
 
 ## 使用方法
 
+### 状态、安装与升级提醒
+
+仓库根目录的 `manage.ps1` 是统一入口。它不会常驻，也不调用模型：
+
+```powershell
+.\manage.ps1 status
+.\manage.ps1 install
+.\manage.ps1 uninstall
+.\manage.ps1 monitor-install
+.\manage.ps1 monitor-uninstall
+```
+
+`status` 自动定位最新的 Codex Computer Use runtime，分别报告截图兼容 DLL 和 Windows 原生 CU 路由，不把两类问题合并判断。默认还读取 `openai/codex` 中相关公开 Issue 的状态；无法联网时显示 `unavailable`，不影响本地检查。
+
+`monitor-install` 安装一个当前用户的计划任务，在登录时和每天 10:00 触发，并保存当前状态作为基线；`StartWhenAvailable` 会在电脑错过定时点后补跑，状态文件保证同一天最多联网检查一次。以后只有 runtime、补丁、路由配置发生变化，或者相关官方 Issue 关闭或重新打开时才提醒；它不会因为新评论提醒，也不会自动安装、卸载或修改 Codex。`monitor-uninstall` 可完整移除该计划任务。状态文件和日志位于 `%LOCALAPPDATA%\CodexComputerUseFix`。
+
+当状态显示 `official-path-candidate-needs-live-validation` 时，只代表官方配置开始包含 Windows 原生入口，还需进行一次只读真实 CU 验证，不能据此直接删除兼容措施。
+
 ### 安装
 
 先确认实际使用的 `codex-computer-use.exe` 路径。下面的路径是占位示例，使用前必须替换。
