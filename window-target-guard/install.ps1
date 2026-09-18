@@ -13,8 +13,19 @@ if ([IO.Path]::GetFileName($source) -ine 'sky.js') {
 $marker = 'codex-cu-target-window-guard:v1'
 $backup = "$source.codex-cu-target-window-guard.bak"
 $recordPath = "$source.codex-cu-target-window-guard.install.json"
-$needle = 'const e=(...e)=>c({type:"execute",method:t,args:e});Reflect.set(i,t,e)'
-$replacement = 'const e=(...e)=>"get_window_state"===t&&e[0]&&e[0].window?c({type:"execute",method:"activate_window",args:[{window:e[0].window}]}).then(()=>c({type:"execute",method:"get_window",args:[{id:e[0].window.id,app:e[0].window.app}]})).then(r=>c({type:"execute",method:t,args:[{...e[0],window:r},...e.slice(1)]})):c({type:"execute",method:t,args:e});/* codex-cu-target-window-guard:v1 */Reflect.set(i,t,e)'
+
+$signatures = @(
+    @{
+        Name = 'v0.7'
+        Needle = 'const e=(...e)=>a({type:"execute",method:t,args:e});Reflect.set(o,t,e)'
+        Replacement = 'const e=(...e)=>"get_window_state"===t&&e[0]&&e[0].window?a({type:"execute",method:"activate_window",args:[{window:e[0].window}]}).then(()=>a({type:"execute",method:"get_window",args:[{id:e[0].window.id,app:e[0].window.app}]})).then(r=>a({type:"execute",method:t,args:[{...e[0],window:r},...e.slice(1)]})):a({type:"execute",method:t,args:e});/* codex-cu-target-window-guard:v1 */Reflect.set(o,t,e)'
+    },
+    @{
+        Name = 'v0.6'
+        Needle = 'const e=(...e)=>c({type:"execute",method:t,args:e});Reflect.set(i,t,e)'
+        Replacement = 'const e=(...e)=>"get_window_state"===t&&e[0]&&e[0].window?c({type:"execute",method:"activate_window",args:[{window:e[0].window}]}).then(()=>c({type:"execute",method:"get_window",args:[{id:e[0].window.id,app:e[0].window.app}]})).then(r=>c({type:"execute",method:t,args:[{...e[0],window:r},...e.slice(1)]})):c({type:"execute",method:t,args:e});/* codex-cu-target-window-guard:v1 */Reflect.set(i,t,e)'
+    }
+)
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Get-Hash([string]$Path) {
@@ -38,14 +49,21 @@ if ($Action -eq 'Install') {
     if ((Test-Path -LiteralPath $backup) -or (Test-Path -LiteralPath $recordPath)) {
         throw 'A previous target-window guard backup or record exists; inspect it before installing.'
     }
-    $matches = ([regex]::Matches($text, [regex]::Escape($needle))).Count
-    if ($matches -ne 1) {
-        throw "Unsupported @oai/sky build: expected one patch point, found $matches."
+    $selected = $null
+    foreach ($sig in $signatures) {
+        $matches = ([regex]::Matches($text, [regex]::Escape($sig.Needle))).Count
+        if ($matches -eq 1) {
+            $selected = $sig
+            break
+        }
     }
-    if ($PSCmdlet.ShouldProcess($source, 'Install target-window activation guard')) {
+    if (-not $selected) {
+        throw "Unsupported @oai/sky build: no known patch signature matched."
+    }
+    if ($PSCmdlet.ShouldProcess($source, "Install target-window activation guard ($($selected.Name))")) {
         Copy-Item -LiteralPath $source -Destination $backup
         $originalHash = Get-Hash $backup
-        [IO.File]::WriteAllText($source, $text.Replace($needle, $replacement), $utf8)
+        [IO.File]::WriteAllText($source, $text.Replace($selected.Needle, $selected.Replacement), $utf8)
         $patchedHash = Get-Hash $source
         if ($patchedHash -eq $originalHash -or -not ([IO.File]::ReadAllText($source).Contains($marker))) {
             Copy-Item -LiteralPath $backup -Destination $source -Force
@@ -54,12 +72,13 @@ if ($Action -eq 'Install') {
         }
         [pscustomobject]@{
             sourcePath = $source
+            signature = $selected.Name
             originalSha256 = $originalHash
             patchedSha256 = $patchedHash
             marker = $marker
             installedAt = (Get-Date).ToString('o')
         } | ConvertTo-Json | Set-Content -LiteralPath $recordPath -Encoding utf8
-        Write-Output "Installed target-window guard: $source"
+        Write-Output "Installed target-window guard ($($selected.Name)): $source"
         Write-Output 'Restart the Node REPL / Codex before validating Computer Use.'
     }
     return
