@@ -16,8 +16,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path $PSScriptRoot 'capture-compat\install.ps1'
 $targetGuardInstaller = Join-Path $PSScriptRoot 'window-target-guard\install.ps1'
+$proxyEnvInstaller = Join-Path $PSScriptRoot 'proxy-env\install.ps1'
 $taskName = 'CodexComputerUseFix-Monitor'
-$issueIds = @(36603, 42941, 43498, 43594)
+$issueIds = @(22623, 36603, 42454, 42941, 43498, 43594, 44364)
 
 function Get-LatestDirectory([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
@@ -115,6 +116,35 @@ function Get-TargetGuardState([IO.DirectoryInfo]$Runtime) {
     }
 }
 
+function Get-ProxyEnvState([IO.DirectoryInfo]$Runtime) {
+    if (-not $Runtime) {
+        return [pscustomobject]@{ state = 'runtime-missing'; sourcePath = $null; markerPresent = $false; installRecordPresent = $false; ownedInstall = $false }
+    }
+    $sourcePath = Join-Path $Runtime.FullName 'bin\node_modules\@oai\cua-repl\bin\cua-repl.mjs'
+    $recordPath = "$sourcePath.codex-cu-proxy-env.install.json"
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        return [pscustomobject]@{ state = 'cua-repl-launcher-missing'; sourcePath = $sourcePath; markerPresent = $false; installRecordPresent = $false; ownedInstall = $false; proxyUrl = $null }
+    }
+    $text = [IO.File]::ReadAllText($sourcePath)
+    $markerPresent = $text.Contains('codex-cu-proxy-env:v1')
+    $record = $null
+    if (Test-Path -LiteralPath $recordPath) {
+        try { $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json } catch { $record = $null }
+    }
+    $currentHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+    $owned = $markerPresent -and $record -and [string]::Equals($record.sourcePath, $sourcePath, [StringComparison]::OrdinalIgnoreCase) -and [string]::Equals($record.patchedSha256, $currentHash, [StringComparison]::OrdinalIgnoreCase)
+    $state = if ($owned) { 'installed-and-owned' } elseif ($markerPresent -or $record) { 'mixed-or-unowned' } else { 'not-installed' }
+    [pscustomobject]@{
+        state = $state
+        sourcePath = $sourcePath
+        sourceSha256 = $currentHash
+        markerPresent = $markerPresent
+        installRecordPresent = [bool]$record
+        ownedInstall = [bool]$owned
+        proxyUrl = if ($record) { $record.proxyUrl } else { $null }
+    }
+}
+
 function Get-IssueState([switch]$Skip) {
     if ($Skip) { return @() }
     $headers = @{ 'User-Agent' = 'CodexComputerUseFix'; 'Accept' = 'application/vnd.github+json' }
@@ -141,6 +171,7 @@ function Get-CurrentState {
             helpers = $helpers
         }
         targetWindowGuard = Get-TargetGuardState $runtime
+        proxyEnvironment = Get-ProxyEnvState $runtime
         nativeRouting = Get-RoutingState $PluginRoot
         officialIssues = @(Get-IssueState -Skip:$SkipIssueCheck)
     }
@@ -150,7 +181,7 @@ function Get-StateSignature($State) {
     # Only a closed issue is actionable. Network failures and ordinary comments must not create reminders.
     $issues = @($State.officialIssues | Where-Object state -eq 'closed' | ForEach-Object { [string]$_.id }) -join ';'
     $helpers = @($State.captureCompatibility.helpers | ForEach-Object { "$($_.helperPath):$($_.helperSha256):$($_.ownedInstall)" }) -join ';'
-    "$($State.runtimeId)|$($State.nativeRouting.pluginVersion)|$($State.nativeRouting.state)|$($State.nativeRouting.surfaces -join ',')|$helpers|$($State.targetWindowGuard.state):$($State.targetWindowGuard.sourceSha256)|$issues"
+    "$($State.runtimeId)|$($State.nativeRouting.pluginVersion)|$($State.nativeRouting.state)|$($State.nativeRouting.surfaces -join ',')|$helpers|$($State.targetWindowGuard.state):$($State.targetWindowGuard.sourceSha256)|$($State.proxyEnvironment.state):$($State.proxyEnvironment.sourceSha256):$($State.proxyEnvironment.proxyUrl)|$issues"
 }
 
 function Save-MonitorState($State) {
@@ -194,6 +225,7 @@ function Invoke-Status {
     $state.captureCompatibility | Format-List state
     $state.captureCompatibility.helpers | Format-Table helperPath, dllPresent, installRecordPresent, ownedInstall -AutoSize
     $state.targetWindowGuard | Format-List state, sourcePath, markerPresent, installRecordPresent, ownedInstall
+    $state.proxyEnvironment | Format-List state, sourcePath, markerPresent, installRecordPresent, ownedInstall, proxyUrl
     $state.nativeRouting | Format-List pluginVersion, configPath, surfaces, skyRegistered, state
     if ($state.officialIssues.Count -gt 0) { $state.officialIssues | Format-Table id, state, updatedAt, url -AutoSize }
 }
@@ -204,10 +236,13 @@ function Invoke-InstallAction([string]$InstallAction) {
     $helpers = @(Get-Helpers $RuntimeRoot $HelperPath)
     if ($helpers.Count -eq 0) { throw 'No current codex-computer-use.exe helper was found.' }
     $skyPath = Join-Path $runtime.FullName 'bin\node_modules\@oai\sky\dist\project\cua\sky_js\src\sky.js'
+    $launcherPath = Join-Path $runtime.FullName 'bin\node_modules\@oai\cua-repl\bin\cua-repl.mjs'
     if ($InstallAction -eq 'Install') {
         foreach ($helper in $helpers) { & $installer -HelperPath $helper.FullName -Action $InstallAction }
         & $targetGuardInstaller -SkyPath $skyPath -Action $InstallAction
+        & $proxyEnvInstaller -LauncherPath $launcherPath -Action $InstallAction
     } else {
+        & $proxyEnvInstaller -LauncherPath $launcherPath -Action $InstallAction
         & $targetGuardInstaller -SkyPath $skyPath -Action $InstallAction
         foreach ($helper in $helpers) { & $installer -HelperPath $helper.FullName -Action $InstallAction }
     }

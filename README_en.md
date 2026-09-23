@@ -11,6 +11,7 @@ After installation, use Computer Use as usual. No separate proxy process or addi
 - **Capture border compatibility:** Handles `IsBorderRequired` property calls when the system lacks `IGraphicsCaptureSession3`, preserving the default Windows capture border.
 - **Screenshot callback dispatch:** Sends eligible `FrameArrived` callbacks to MTA workers in the Windows thread pool, avoiding blocking waits for image conversion inside Windows Graphics Capture (WGC) callbacks.
 - **Target-window guard:** Activates and rehydrates the requested window before `get_window_state`, working around the official Windows helper's known wrong-window screenshot behavior.
+- **CU proxy environment injection:** Makes the managed `cua_repl` Node process explicitly use a selected local HTTP proxy, fixing first-call `nodeRepl.fetch request failed` errors in proxied environments. Loopback destinations remain excluded.
 - **Local installation and removal:** Installs the DLL and an installation record beside the helper. Removal verifies the recorded path and DLL hash.
 - **Development tools:** Includes COM unit tests, a probe for real WGC capture, a standalone test window, and optional call tracing.
 
@@ -33,6 +34,7 @@ Set-Location .\capture-compat
 .\validate.ps1
 Set-Location ..
 .\window-target-guard\tests\install_tests.ps1
+.\proxy-env\tests\install_tests.ps1
 ```
 
 Building requires the MSVC x64 C++ tools, MASM, and the Windows SDK. Live capture tests require a logged-in, unlocked Windows 10 interactive desktop. See the [build and usage guide](capture-compat/README_en.md) for toolchain requirements and build options.
@@ -61,13 +63,13 @@ Building and running the probe do not automatically install or update the DLL in
 .\manage.ps1 monitor-uninstall
 ```
 
-`status` locates the latest Codex Computer Use runtime and reports the capture compatibility DLL, target-window guard, and Windows native CU routing separately. It also reads the state of the related public `openai/codex` issues by default; a network failure is reported as `unavailable` and does not block local checks.
+`status` locates the latest Codex Computer Use runtime and reports the capture compatibility DLL, target-window guard, CU proxy environment, and Windows native CU routing separately. It also reads the state of the related public `openai/codex` issues by default; a network failure is reported as `unavailable` and does not block local checks.
 
 `monitor-install` creates a per-user scheduled task that runs at sign-in and daily at 10:00. `StartWhenAvailable` catches a missed scheduled time, while the state file limits network checks to once per day. It only notifies when the runtime, owned patch, routing configuration, or open/closed state of a related issue changes. It never installs, removes, or modifies Codex automatically. `monitor-uninstall` removes the task. State and logs are stored under `%LOCALAPPDATA%\CodexComputerUseFix`.
 
 `official-path-candidate-needs-live-validation` means that the generated configuration now includes the Windows native surface. A read-only live CU check is still required before removing any compatibility measure.
 
-`manage.ps1 install` installs both the DLL and target-window guard; `manage.ps1 uninstall` restores both using their ownership records and hashes. The guard changes only the current runtime's `@oai/sky` entrypoint, never the helper executable. When a Codex update switches runtimes, the monitor asks for review instead of applying an old patch automatically.
+`manage.ps1 install` installs the DLL, target-window guard, and CU proxy environment; `manage.ps1 uninstall` restores them using their ownership records and hashes. The script patches change only their entrypoints in the current runtime, never the helper executable. When a Codex update switches runtimes, the monitor asks for review instead of applying an old patch automatically. The proxy installer defaults to `http://127.0.0.1:7890` and records the selected value.
 
 ### Installation
 
