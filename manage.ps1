@@ -126,7 +126,7 @@ function Get-ProxyEnvState([IO.DirectoryInfo]$Runtime) {
         return [pscustomobject]@{ state = 'cua-repl-launcher-missing'; sourcePath = $sourcePath; markerPresent = $false; installRecordPresent = $false; ownedInstall = $false; proxyUrl = $null }
     }
     $text = [IO.File]::ReadAllText($sourcePath)
-    $markerPresent = $text.Contains('codex-cu-proxy-env:v1')
+    $markerPresent = $text.Contains('codex-cu-proxy-env:v2')
     $record = $null
     if (Test-Path -LiteralPath $recordPath) {
         try { $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json } catch { $record = $null }

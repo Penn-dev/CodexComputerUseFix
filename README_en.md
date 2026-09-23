@@ -11,7 +11,7 @@ After installation, use Computer Use as usual. No separate proxy process or addi
 - **Capture border compatibility:** Handles `IsBorderRequired` property calls when the system lacks `IGraphicsCaptureSession3`, preserving the default Windows capture border.
 - **Screenshot callback dispatch:** Sends eligible `FrameArrived` callbacks to MTA workers in the Windows thread pool, avoiding blocking waits for image conversion inside Windows Graphics Capture (WGC) callbacks.
 - **Target-window guard:** Activates and rehydrates the requested window before `get_window_state`, working around the official Windows helper's known wrong-window screenshot behavior.
-- **CU proxy environment injection:** Makes the managed `cua_repl` Node process explicitly use a selected local HTTP proxy, fixing first-call `nodeRepl.fetch request failed` errors in proxied environments. Loopback destinations remain excluded.
+- **CU proxy environment injection:** Initializes Node's local HTTP proxy before importing `cua_repl`, addressing `nodeRepl.fetch request failed` in proxied environments. Loopback destinations remain excluded.
 - **Local installation and removal:** Installs the DLL and an installation record beside the helper. Removal verifies the recorded path and DLL hash.
 - **Development tools:** Includes COM unit tests, a probe for real WGC capture, a standalone test window, and optional call tracing.
 

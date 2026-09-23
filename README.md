@@ -11,7 +11,7 @@
 - **捕获边框兼容**：系统缺少 `IGraphicsCaptureSession3` 时，兼容处理 `IsBorderRequired` 属性调用，保留 Windows 默认捕获边框。
 - **截图回调派发**：将符合条件的 `FrameArrived` 回调交给 Windows 线程池的 MTA 工作线程，避免在 Windows Graphics Capture（WGC）内部回调中等待图像转换造成阻塞。
 - **目标窗口守卫**：`get_window_state` 前先激活并重新绑定请求中的窗口，规避官方 Windows helper 已知的错误窗口截图问题。
-- **CU 代理环境注入**：让托管 `cua_repl` Node 进程显式使用指定的本机 HTTP 代理，修复代理环境下首次浏览器枚举报 `nodeRepl.fetch request failed`；不会代理 `localhost`、`127.0.0.1` 或 `::1`。
+- **CU 代理环境注入**：在加载 `cua_repl` 模块前初始化 Node 的本机 HTTP 代理，处理代理环境下的 `nodeRepl.fetch request failed`；`localhost`、`127.0.0.1` 和 `::1` 仍直连。
 - **本地部署与回退**：仅在 helper 同目录安装 DLL 和安装记录，通过路径、文件哈希校验管理卸载。
 - **开发验证**：提供 COM 单元测试、真实 WGC 探针、独立测试窗口和可选调用日志。
 
