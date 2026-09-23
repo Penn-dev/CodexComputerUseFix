@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_en.md)
 
-A Windows compatibility layer for Codex Computer Use. It builds a local x64 `version.dll` for Windows 10 capture-interface and callback issues, and provides a reversible target-window guard for releases that can return Codex or another foreground window after a different target was selected.
+A Windows compatibility layer for Codex Computer Use. It builds a local x64 `version.dll` for Windows 10 capture-interface and callback issues and provides CU proxy environment injection. The old target-window guard can still be uninstalled but is no longer installed by default.
 
 After installation, use Computer Use as usual. No separate proxy process or additional MCP service is required. This is an independent compatibility implementation and does not include the official helper's source code.
 
@@ -10,7 +10,7 @@ After installation, use Computer Use as usual. No separate proxy process or addi
 
 - **Capture border compatibility:** Handles `IsBorderRequired` property calls when the system lacks `IGraphicsCaptureSession3`, preserving the default Windows capture border.
 - **Screenshot callback dispatch:** Sends eligible `FrameArrived` callbacks to MTA workers in the Windows thread pool, avoiding blocking waits for image conversion inside Windows Graphics Capture (WGC) callbacks.
-- **Target-window guard:** Activates and rehydrates the requested window before `get_window_state`, working around the official Windows helper's known wrong-window screenshot behavior.
+- **Background target windows:** When switching apps, activate the window returned by `list_windows` with `sky.activate_window` before reading its state. The old automatic guard can invalidate modal element indices, so the unified installer removes it.
 - **CU proxy environment injection:** Initializes Node's local HTTP proxy before importing `cua_repl`, addressing `nodeRepl.fetch request failed` in proxied environments. Loopback destinations remain excluded.
 - **Local installation and removal:** Installs the DLL and an installation record beside the helper. Removal verifies the recorded path and DLL hash.
 - **Development tools:** Includes COM unit tests, a probe for real WGC capture, a standalone test window, and optional call tracing.
@@ -69,7 +69,7 @@ Building and running the probe do not automatically install or update the DLL in
 
 `official-path-candidate-needs-live-validation` means that the generated configuration now includes the Windows native surface. A read-only live CU check is still required before removing any compatibility measure.
 
-`manage.ps1 install` installs the DLL, target-window guard, and CU proxy environment; `manage.ps1 uninstall` restores them using their ownership records and hashes. The script patches change only their entrypoints in the current runtime, never the helper executable. When a Codex update switches runtimes, the monitor asks for review instead of applying an old patch automatically. The proxy installer defaults to `http://127.0.0.1:7890` and records the selected value.
+`manage.ps1 install` installs the DLL and CU proxy environment and removes an owned old target-window guard; `manage.ps1 uninstall` restores components using their ownership records and hashes. The script patches change only entrypoints in the current runtime, never the helper executable. When a Codex update switches runtimes, the monitor asks for review instead of applying an old patch automatically. The proxy installer defaults to `http://127.0.0.1:7890` and records the selected value. A `not-installed` target-window guard state is expected.
 
 ### Installation
 

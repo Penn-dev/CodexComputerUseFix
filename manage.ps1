@@ -239,7 +239,7 @@ function Invoke-InstallAction([string]$InstallAction) {
     $launcherPath = Join-Path $runtime.FullName 'bin\node_modules\@oai\cua-repl\bin\cua-repl.mjs'
     if ($InstallAction -eq 'Install') {
         foreach ($helper in $helpers) { & $installer -HelperPath $helper.FullName -Action $InstallAction }
-        & $targetGuardInstaller -SkyPath $skyPath -Action $InstallAction
+        & $targetGuardInstaller -SkyPath $skyPath -Action Uninstall
         & $proxyEnvInstaller -LauncherPath $launcherPath -Action $InstallAction
     } else {
         & $proxyEnvInstaller -LauncherPath $launcherPath -Action $InstallAction
