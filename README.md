@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_en.md)
 
-面向 Windows 的 Codex Computer Use 兼容层。项目既构建本地加载的 x64 `version.dll`，处理 Windows 10 截图接口与回调问题，也提供可回退的目标窗口守卫，避免新版 CU 在已选择目标窗口后仍截到 Codex 或其他前台窗口。
+面向 Windows 的 Codex Computer Use 兼容层。项目构建本地加载的 x64 `version.dll`，处理 Windows 10 截图接口与回调问题，并提供 CU 代理环境注入。旧版目标窗口守卫保留卸载能力，但不再默认安装。
 
 安装后继续通过原有 Computer Use 功能操作应用，无需单独运行代理程序或新增 MCP 服务。这是独立的兼容实现，不包含官方 helper 的源码。
 
@@ -10,8 +10,8 @@
 
 - **捕获边框兼容**：系统缺少 `IGraphicsCaptureSession3` 时，兼容处理 `IsBorderRequired` 属性调用，保留 Windows 默认捕获边框。
 - **截图回调派发**：将符合条件的 `FrameArrived` 回调交给 Windows 线程池的 MTA 工作线程，避免在 Windows Graphics Capture（WGC）内部回调中等待图像转换造成阻塞。
-- **目标窗口守卫**：`get_window_state` 前先激活并重新绑定请求中的窗口，规避官方 Windows helper 已知的错误窗口截图问题。
-- **CU 代理环境注入**：让托管 `cua_repl` Node 进程显式使用指定的本机 HTTP 代理，修复代理环境下首次浏览器枚举报 `nodeRepl.fetch request failed`；不会代理 `localhost`、`127.0.0.1` 或 `::1`。
+- **后台目标窗口**：切换目标应用时，先通过 `sky.activate_window` 激活从 `list_windows` 取得的窗口，再读取状态；避免截图混入其他前台窗口。旧版自动守卫会使部分模态控件编号失效，因此统一安装命令会将其卸载。
+- **CU 代理环境注入**：在加载 `cua_repl` 模块前初始化 Node 的本机 HTTP 代理，处理代理环境下的 `nodeRepl.fetch request failed`；`localhost`、`127.0.0.1` 和 `::1` 仍直连。
 - **本地部署与回退**：仅在 helper 同目录安装 DLL 和安装记录，通过路径、文件哈希校验管理卸载。
 - **开发验证**：提供 COM 单元测试、真实 WGC 探针、独立测试窗口和可选调用日志。
 
@@ -69,7 +69,7 @@ Set-Location ..
 
 当状态显示 `official-path-candidate-needs-live-validation` 时，只代表官方配置开始包含 Windows 原生入口，还需进行一次只读真实 CU 验证，不能据此直接删除兼容措施。
 
-根目录的 `manage.ps1 install` 会同时安装 DLL、目标窗口守卫和 CU 代理环境；`manage.ps1 uninstall` 会按各自安装记录与哈希完整回退。两个脚本补丁只修改当前 runtime 内各自的入口文件，不修改 helper 可执行文件；Codex 更新切换 runtime 后，监控会提醒重新复核，不会自动套用旧补丁。代理环境安装器默认使用 `http://127.0.0.1:7890`，并在安装记录中保存实际值。
+根目录的 `manage.ps1 install` 安装 DLL 和 CU 代理环境，并卸载已由本项目安装的旧版目标窗口守卫；`manage.ps1 uninstall` 会按各自安装记录与哈希完整回退。脚本补丁只修改当前 runtime 内的入口文件，不修改 helper 可执行文件；Codex 更新切换 runtime 后，监控会提醒重新复核，不会自动套用旧补丁。代理环境安装器默认使用 `http://127.0.0.1:7890`，并在安装记录中保存实际值。目标窗口守卫在 `status` 中显示 `not-installed` 是预期状态。
 
 ### 安装
 

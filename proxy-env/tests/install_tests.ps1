@@ -6,24 +6,22 @@ $launcher = Join-Path $launcherDirectory 'cua-repl.mjs'
 
 try {
     New-Item -ItemType Directory -Path $launcherDirectory -Force | Out-Null
-    [IO.File]::WriteAllText($launcher, "#!/usr/bin/env node`ntry {`n  process.stdout.write('fixture');`n} catch (error) {}`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($launcher, "#!/usr/bin/env node`nimport * as cua_repl from `"@oai/cua-repl`";`ntry {`n  await cua_repl.launch();`n} catch (error) {}`n", [Text.UTF8Encoding]::new($false))
     $originalHash = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash
 
     & $installer -LauncherPath $launcher -Action Install -ProxyUrl 'http://127.0.0.1:7890' | Out-Null
-    $text = [IO.File]::ReadAllText($launcher)
-    if (-not $text.Contains('codex-cu-proxy-env:v1')) { throw 'Install marker missing.' }
-    if (-not $text.Contains('NODE_USE_ENV_PROXY: "1"')) { throw 'Node proxy opt-in missing.' }
-    if (-not $text.Contains('HTTP_PROXY: "http://127.0.0.1:7890"')) { throw 'Proxy URL missing.' }
-    $recordPath = "$launcher.codex-cu-proxy-env.install.json"
-    $backupPath = "$launcher.codex-cu-proxy-env.bak"
-    if (-not (Test-Path -LiteralPath $recordPath) -or -not (Test-Path -LiteralPath $backupPath)) { throw 'Ownership files missing.' }
-
+    $content = [IO.File]::ReadAllText($launcher)
+    $proxyPosition = $content.IndexOf('http.setGlobalProxyFromEnv();')
+    $importPosition = $content.IndexOf('await import("@oai/cua-repl")')
+    if ($proxyPosition -lt 0 -or $importPosition -le $proxyPosition) { throw 'Proxy setup must precede CU module import.' }
+    if ($content.Contains('import * as cua_repl')) { throw 'Static CU import remained.' }
+    & node --check $launcher
+    if ($LASTEXITCODE -ne 0) { throw 'Patched launcher failed node --check.' }
     & $installer -LauncherPath $launcher -Action Install | Out-Null
     & $installer -LauncherPath $launcher -Action Uninstall | Out-Null
-    if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash -ne $originalHash) { throw 'Uninstall did not restore the exact original.' }
-    if ((Test-Path -LiteralPath $recordPath) -or (Test-Path -LiteralPath $backupPath)) { throw 'Ownership files remained after uninstall.' }
-
-    'PASS: proxy environment install is idempotent and uninstall restores exact bytes.'
+    if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash -ne $originalHash) { throw 'Uninstall did not restore exact original bytes.' }
+    if ((Test-Path -LiteralPath "$launcher.codex-cu-proxy-env.install.json") -or (Test-Path -LiteralPath "$launcher.codex-cu-proxy-env.bak")) { throw 'Ownership files remained after uninstall.' }
+    'PASS: proxy setup precedes dynamic import; install is idempotent; uninstall restores exact bytes.'
 } finally {
     Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
 }
