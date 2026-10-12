@@ -13,7 +13,12 @@ $packageName = "CodexCaptureCompat-$Version-windows-x64$suffix"
 # work directly from an extracted archive. Never copy build or validation data.
 $files = [System.Collections.Generic.List[string]]::new()
 foreach ($relative in @(
-    'LICENSE', 'README.md', 'README_en.md', '.gitignore',
+    'LICENSE', 'README.md', 'README_en.md', '.gitignore', 'manage.ps1',
+    'docs/cu-maintenance-audit.md', 'docs/windows-computer-use.md',
+    'native-runtime/install.ps1', 'native-runtime/install-tests.ps1', 'native-runtime/bootstrap.mjs', 'native-runtime/worker-wrapper.cjs', 'native-runtime/tests.mjs',
+    'capture-notify/health.mjs', 'capture-notify/notify.mjs', 'capture-notify/tests.mjs',
+    'windows-lifecycle/install.ps1', 'windows-lifecycle/lifecycle.mjs', 'windows-lifecycle/tests.mjs',
+    'browser-proxy/launch.ps1', 'browser-proxy/persistent.ps1', 'browser-proxy/persistent-tests.ps1',
     'capture-compat/.gitignore', 'capture-compat/README.md', 'capture-compat/README_en.md',
     'capture-compat/build.ps1',
     'capture-compat/install.ps1', 'capture-compat/validate.ps1',

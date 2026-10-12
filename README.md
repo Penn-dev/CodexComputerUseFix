@@ -2,171 +2,112 @@
 
 [简体中文](README.md) | [English](README_en.md)
 
-面向 Windows 的 Codex Computer Use 兼容层。项目构建本地加载的 x64 `version.dll`，处理 Windows 10 截图接口与回调问题，并提供 CU 代理环境注入。旧版目标窗口守卫保留卸载能力，但不再默认安装。
+为 Windows 10 上已确认的 Codex Computer Use 故障提供最小修复。当前方案包含截图 DLL、已有代理传递、原生控制释放，以及按真实截图失败触发的提醒。
 
-安装后继续通过原有 Computer Use 功能操作应用，无需单独运行代理程序或新增 MCP 服务。这是独立的兼容实现，不包含官方 helper 的源码。
+[维护核查与实测记录](docs/cu-maintenance-audit.md)记录各项故障的证据和当前验证结果。
 
-## 功能
+## 当前方案
 
-- **捕获边框兼容**：系统缺少 `IGraphicsCaptureSession3` 时，兼容处理 `IsBorderRequired` 属性调用，保留 Windows 默认捕获边框。
-- **截图回调派发**：将符合条件的 `FrameArrived` 回调交给 Windows 线程池的 MTA 工作线程，避免在 Windows Graphics Capture（WGC）内部回调中等待图像转换造成阻塞。
-- **后台目标窗口**：切换目标应用时，先通过 `sky.activate_window` 激活从 `list_windows` 取得的窗口，再读取状态；避免截图混入其他前台窗口。旧版自动守卫会使部分模态控件编号失效，因此统一安装命令会将其卸载。
-- **CU 代理环境注入**：在加载 `cua_repl` 模块前初始化 Node 的本机 HTTP 代理，处理代理环境下的 `nodeRepl.fetch request failed`；`localhost`、`127.0.0.1` 和 `::1` 仍直连。
-- **本地部署与回退**：仅在 helper 同目录安装 DLL 和安装记录，通过路径、文件哈希校验管理卸载。
-- **开发验证**：提供 COM 单元测试、真实 WGC 探针、独立测试窗口和可选调用日志。
+| 项目 | 作用 | 实现位置 |
+| --- | --- | --- |
+| 截图 DLL | 补齐 Windows 10 缺少的可选边框接口，并处理截图回调阻塞 | `capture-compat/`，DLL 放在实际 helper 旁 |
+| 代理传递 | 将机器上已有的代理设置传给官方 CU 子进程 | `browser-proxy/`，固定系统配置和启动脚本 |
+| 原生释放 | 操作结束后释放本会话的控制；处理用户按物理 Esc 后的连接清理 | `windows-lifecycle/`，由固定加载器加载 |
+| 失败提醒 | 同一会话十分钟内连续两次同类截图错误时弹窗 | `capture-notify/`，直接处理 CU 调用结果 |
 
-本项目面向 Windows 10 x64。当前实现对 `codex-computer-use.exe` 和测试程序 `compat_probe.exe` 启用兼容钩子，影响范围限于加载该 DLL 的进程；不修改系统 DLL，不注册全局钩子。
+固定加载器位于 `native-runtime/`。它使用官方 `NODE_REPL_WORKER_WRAPPER`，保留官方 sandbox 命令、参数、工作目录和输入输出。修复代码放在 `%USERPROFILE%\.codex\plugins\cu-compat`，通过内存加载钩子接入原生客户端，不改写 runtime 的 JavaScript 文件。
 
-## 下载预编译版本
+加载器随 CU worker 启动，父进程等待对应 worker 退出。没有定时任务、日志轮询或独立长期值守程序。旧代理注入、自动窗口守卫和 `CodexComputerUseFix-Monitor` 已退出当前方案。
 
-从 [GitHub Releases](https://github.com/MagicalAstrogy/CodexComputerUseFix/releases) 下载 `CodexCaptureCompat-<版本>-windows-x64.zip`。解压完整目录后，直接按下方使用方法安装，无需配置编译工具链。文件名带 `-trace` 的包用于诊断，日常使用选择普通版。
+## 截图 DLL
 
-每个 ZIP 都附有 `.sha256` 校验文件，并包含安装脚本、探针、文档和源码。校验与发布步骤见 [CI 与 Release 指南](capture-compat/docs/ci.md)。
-
-## 从源码构建
-
-在项目根目录打开 PowerShell：
+已报告的原始故障：[边框接口 #25178](https://github.com/openai/codex/issues/25178)、[截图回调 #35446](https://github.com/openai/codex/issues/35446)。本机处理依据是实际截图失败和修复后的直接结果。
 
 ```powershell
-Set-Location .\capture-compat
-.\build.ps1
-.\tests\install_tests.ps1
-.\validate.ps1
-Set-Location ..
-.\window-target-guard\tests\install_tests.ps1
-.\proxy-env\tests\install_tests.ps1
-```
-
-构建需要 MSVC x64 C++ 工具、MASM 和 Windows SDK；实机验证需要已登录、未锁定的 Windows 10 交互桌面。工具链要求及构建选项见[构建与使用指南](capture-compat/README.md)。
-
-构建产物位于 `capture-compat/dist/`：
-
-| 产物 | 用途 |
-| --- | --- |
-| `version.dll` | 安装到 Computer Use helper 同目录的兼容层 |
-| `compat_probe.exe` | 验证边框接口、真实捕获和异步回调 |
-| `capture_test_window.exe` | 供 Computer Use 截图测试使用的独立窗口 |
-
-构建和探针验证不会自动安装或更新运行时中的 DLL。
-
-## 使用方法
-
-### 状态、安装与升级提醒
-
-仓库根目录的 `manage.ps1` 是统一入口。它不会常驻，也不调用模型：
-
-```powershell
-.\manage.ps1 status
+.\manage.ps1 status -Json
 .\manage.ps1 install
 .\manage.ps1 uninstall
-.\manage.ps1 monitor-install
-.\manage.ps1 monitor-uninstall
 ```
 
-`status` 自动定位最新的 Codex Computer Use runtime，分别报告截图兼容 DLL、目标窗口守卫、CU 代理环境和 Windows 原生 CU 路由，不把不同问题合并判断。默认还读取 `openai/codex` 中相关公开 Issue 的状态；无法联网时显示 `unavailable`，不影响本地检查。
-
-`monitor-install` 安装一个当前用户的计划任务，在登录时和每天 10:00 触发，并保存当前状态作为基线；`StartWhenAvailable` 会在电脑错过定时点后补跑，状态文件保证同一天最多联网检查一次。以后只有 runtime、补丁、路由配置发生变化，或者相关官方 Issue 关闭或重新打开时才提醒；它不会因为新评论提醒，也不会自动安装、卸载或修改 Codex。`monitor-uninstall` 可完整移除该计划任务。状态文件和日志位于 `%LOCALAPPDATA%\CodexComputerUseFix`。
-
-当状态显示 `official-path-candidate-needs-live-validation` 时，只代表官方配置开始包含 Windows 原生入口，还需进行一次只读真实 CU 验证，不能据此直接删除兼容措施。
-
-根目录的 `manage.ps1 install` 安装 DLL 和 CU 代理环境，并卸载已由本项目安装的旧版目标窗口守卫；`manage.ps1 uninstall` 会按各自安装记录与哈希完整回退。脚本补丁只修改当前 runtime 内的入口文件，不修改 helper 可执行文件；Codex 更新切换 runtime 后，监控会提醒重新复核，不会自动套用旧补丁。代理环境安装器默认使用 `http://127.0.0.1:7890`，并在安装记录中保存实际值。目标窗口守卫在 `status` 中显示 `not-installed` 是预期状态。
-
-### 安装
-
-先确认实际使用的 `codex-computer-use.exe` 路径。下面的路径是占位示例，使用前必须替换。
-
-在 `capture-compat` 目录中执行：
+管理入口从插件启动命令定位配置中的 runtime。多个候选时，使用该会话实际 helper 的路径：
 
 ```powershell
-$helperPath = 'C:\path\to\codex-computer-use.exe'
-
-# 预览安装位置
-.\install.ps1 -HelperPath $helperPath -WhatIf
-
-# 退出正在使用此 helper 的进程后安装
-.\install.ps1 -HelperPath $helperPath -Action Install
+.\manage.ps1 status -HelperPath 'C:\actual\runtime\bin\node_modules\@oai\sky\bin\windows\codex-computer-use.exe' -Json
 ```
 
-重新启动 Computer Use，让 helper 加载新 DLL。安装位置应是 helper 同目录，而不是桌面应用主程序或 Windows 系统目录。
+示例路径需替换。文件归属由状态命令检查，功能由官方 `sky.get_window_state` 检查。更新后出现新目录或 DLL 缺失不会自动弹窗；先观察真实截图结果。
 
-安装脚本新增 `version.dll` 和 `codex-capture-compat.install.json`。它不会修改 helper 可执行文件，也不会替用户终止进程。
+DLL 保留默认捕获边框，不修改系统 DLL 或官方 helper。安装器保存文件哈希和归属记录，卸载只移除本项目拥有的 DLL。内置浏览器和 Chrome 不使用这项 DLL。
 
-### 验证使用效果
+## 代理和原生加载器
 
-打开 `dist/capture_test_window.exe`，通过 Computer Use 选择这个测试窗口并截图。确认画面正确，再验证连续截图与窗口尺寸变化。测试窗口可直接关闭，也会在十分钟后自动退出。
-
-底层探针通过表示兼容层的受测路径正常；实际使用效果还需要在官方 helper 中验证。详细步骤见[验证与排错指南](capture-compat/docs/validation.md)。
-
-### 升级与卸载
-
-升级前先构建新版本，并退出使用目标 DLL 的 helper，然后依次执行：
+使用现有 PowerShell 7 和 Node.js。在官方系统配置 `%ProgramData%\OpenAI\Codex\config.toml` 中安装固定入口：
 
 ```powershell
-.\install.ps1 -HelperPath $helperPath -Action Uninstall
-.\install.ps1 -HelperPath $helperPath -Action Install
+.\browser-proxy\persistent.ps1
+.\native-runtime\install.ps1
 ```
 
-只需回退时执行卸载命令，再重新启动 Computer Use。脚本拒绝覆盖已有的不同 DLL；卸载也只会删除与安装记录中的路径、DLL 哈希相符的文件。
+已有本项目代理入口但脚本版本较旧时，使用 `browser-proxy/persistent.ps1 -Action Update`。它保留匹配的旧脚本和归属记录供恢复。
 
-Codex 更新后，helper 所在目录可能变化，应重新确认实际路径。完整安装规则见[构建与使用指南](capture-compat/README.md)。
+代理启动脚本每次读取桌面端生成的当前 manifest，启动当前官方 CU 程序；协议按字节原样转发。它传递已有 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`，并启用 Node 的环境代理。它不修改代理服务和系统代理设置。
 
-## 实现概览
+原生加载器公开本项目的 `sky.end_turn()`，注册匹配会话和回合的结束清理。正常清理先发送 helper 原有的 `end_turn`，再关闭本客户端的原生连接。其他会话的连接保留；新回合自动建立新客户端。用户按物理 Esc 后，清理关闭当前连接，不重新发起 helper 控制请求。
 
-```text
-Computer Use helper
-  └─ 本地 version.dll
-      ├─ 系统 version 导出 → System32 原版 DLL
-      └─ RoGetActivationFactory 导入钩子
-          └─ WGC 帧池与捕获会话
-              ├─ 缺失的边框属性接口 → 兼容接口
-              └─ 符合条件的帧事件 → 独立 MTA 工作线程
+安装后完全退出并重开 Codex，在官方 `node_repl` 中检查：
+
+```javascript
+var { sky } = await import('@oai/sky');
+await sky.compat_status();
+// captureReminder: 'on-result', polling: false, nativeReleaseAvailable: true
+// 完成本轮原生动作后：
+await sky.end_turn();
 ```
 
-`SetIsBorderRequired` 对应 WinRT/COM 属性调用，并不是 `version.dll` 的导出函数。因此，`version.dll` 在这里承担加载入口和系统导出转发的职责；实际兼容逻辑位于 WGC 对象的接口查询及事件订阅处。
+旧源码补丁的迁移卸载入口保留在 `windows-lifecycle/install.ps1 -Action Uninstall -ClientPath <原客户端路径>`；它校验归属后恢复原文件。当前安装使用固定加载器。
 
-边框兼容只处理原生接口查询返回 `E_NOINTERFACE` 的情况。异步派发还要求帧池不依赖 `DispatcherQueue`、回调支持跨线程调用。事件取消、对象引用和错误处理的细节见[实现说明](capture-compat/docs/implementation.md)。
+卸载顺序：
 
-## 目录结构
-
-```text
-capture-compat/
-├─ README.md              构建与使用指南
-├─ README_en.md           英文构建与使用指南
-├─ build.ps1              编译 DLL、探针并运行单元测试
-├─ install.ps1            安装、卸载及文件校验
-├─ package.ps1            生成发布 ZIP 和 SHA-256 校验文件
-├─ validate.ps1           Windows 10 实机回归
-├─ src/                   DLL 代理、COM 钩子和回调派发
-├─ tests/                 单元测试、捕获探针及测试窗口
-├─ docs/                  实现说明、验证与排错
-├─ build/                 编译中间产物（生成）
-├─ dist/                  可部署产物（生成）
-└─ validation/            验证报告和测试图像（生成）
+```powershell
+.\native-runtime\install.ps1 -Action Uninstall
+.\browser-proxy\persistent.ps1 -Action Uninstall
 ```
 
-`build/`、`dist/` 和 `validation/` 已被工程的 `.gitignore` 排除，源码副本中可能尚不存在这些目录。打包输出位于仓库根目录的 `artifacts/`，同样不进入版本控制。
+安装记录和备份位于系统配置旁。卸载保留其他配置。
 
-## CI 与 Release
+## 无轮询提醒
 
-[Build and release](https://github.com/MagicalAstrogy/CodexComputerUseFix/actions/workflows/build.yml) 工作流在推送 `main`、向 `main` 提交 PR 或手动运行时，构建并测试普通版和 Trace 版，提供保留 14 天的 Actions 下载产物。
+提醒在原生截图调用返回时检查结果。仅识别边框接口失败、`FrameArrived timed out` 和 `window capture timed out`。同一会话十分钟内连续两次同类错误才弹窗；成功截图或其他错误会清除连续失败状态。同一次故障不重复提醒，恢复后再次失败可重新提醒。
 
-推送 `v1.0.0` 这样的版本标签时，两个构建都通过后自动创建 GitHub Release，上传两个 ZIP 及其校验文件。带 `-rc.1` 等后缀的标签发布为预发布版本。CI 运行 COM、回调派发、安装和打包测试；真实截图仍需在 Windows 10 交互桌面验证。详见 [CI 与 Release 指南](capture-compat/docs/ci.md)。
+状态只存在当前 CU 进程内，不保存截图、页面内容或日志读取位置。沙箱中的 CU worker 通过现有标准错误通道发出标记信号，启动器保留原始字节并调用 Windows 自带 `msg.exe` 显示弹窗，两分钟后自动关闭。无法发出信号时在工具结果中报告；桌面发送错误写入运行日志。没有额外的监听端口、通知文件或后台程序。
 
-## 适用范围
+版本、目录、文件哈希、补丁缺失、浏览器网络失败和 Issue 状态变化不触发截图失效提醒。
 
-- 仅提供 x64 构建，面向使用 Windows Graphics Capture 的目标 helper。
-- helper 必须允许加载同目录 `version.dll`，并在主 EXE 中直接导入 `RoGetActivationFactory`。
-- 兼容行为由实际接口能力决定，不通过修改系统版本或捕获权限来启用。
-- Windows 11、其他 helper 构建及不同图形环境仍需各自验证；这不是所有截图故障的通用修复。
-- DLL 未签名。异步派发改变了回调线程和错误返回时序，具体约束见[实现说明](capture-compat/docs/implementation.md)。
+## 构建和验证
+
+```powershell
+.\capture-compat\build.ps1
+.\capture-compat\tests\install_tests.ps1
+.\capture-compat\tests\manage_tests.ps1
+node --test windows-lifecycle/tests.mjs capture-notify/tests.mjs native-runtime/tests.mjs
+.\native-runtime\install-tests.ps1
+.\browser-proxy\persistent-tests.ps1 -NodePath (Get-Command node.exe).Source
+.\capture-compat\validate.ps1
+```
+
+DLL 构建需要 MSVC x64 C++、MASM 和 Windows SDK。设置 `CU_TEST_MODULES` 为实际 runtime 的 `bin/node_modules` 后，原生测试还会验证当前官方客户端的内存加载。
+
+同时设置 `CU_TEST_CLI` 为当前 Codex CLI 执行文件，可验证真实官方入口在桌面端收窄后的插件可信目录中加载本机已安装的修复。
+
+实机验收包括：官方 CU 截图、正常释放、用户按物理 Esc，以及实际桌面提醒。结果记录在维护核查文档。
 
 ## 文档
 
+原截图兼容实现来自[上游项目](https://github.com/MagicalAstrogy/CodexComputerUseFix)。
+
 - [构建与使用指南](capture-compat/README.md)
+- [Windows 原生调用指南](docs/windows-computer-use.md)
 - [实现说明](capture-compat/docs/implementation.md)
-- [验证与排错指南](capture-compat/docs/validation.md)
-- [CI 与 Release 指南](capture-compat/docs/ci.md)
-
-## 许可证
-
-本项目采用 [WTFPL v2](https://www.wtfpl.net/about/) 许可证，完整文本见 [LICENSE](LICENSE)。
+- [验证与排错](capture-compat/docs/validation.md)
+- [CI 与 Release](capture-compat/docs/ci.md)
+- [许可证](LICENSE)
