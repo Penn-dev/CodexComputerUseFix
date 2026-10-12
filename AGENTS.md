@@ -1,22 +1,18 @@
-# Codex Computer Use 兼容项目
+# Windows 10 截图兼容项目
 
-## 接手顺序
+先读 `README.md`，再确认 Git 分支、工作区改动和实际失败的功能。
 
-1. 先读 `README.md` 了解用途与操作入口；用 `git status --short --branch` 确认当前分支和未提交改动。本地分支可能停留在已合并 PR 的旧提交，涉及远端状态时先刷新并核对，勿把本地 `origin/main` 当作实时信息。
-2. 排查本机 CU 时，先运行 `./manage.ps1 status -SkipIssueCheck -Json`；需要公开 Issue 状态时再运行不带 `-SkipIssueCheck` 的检查。监控基线和提醒日志在 `%LOCALAPPDATA%\CodexComputerUseFix`，基线只保存最新状态，提醒本身不说明功能失效。
-3. 根据状态定位到**当前** runtime，再检查对应补丁及实际调用路径。状态为 `installed-and-owned` 只证明文件归属，仍需用真实 CU 调用验证功能。修复后分别验证浏览器与 Windows 原生应用，并记录未验证的场景。
+## 排查和实施
 
-## 组件与历史决策
+1. `./manage.ps1 status -Json` 从插件启动命令定位配置中的 runtime；这不是所有已运行会话的进程证明。必要时核对该会话实际进程路径。多个候选时指定实际 `-HelperPath`，不按目录修改时间选目标。
+2. `capture-compat/` 的 DLL 只处理 Windows 10 截图接口和回调。文件归属与功能是否正常分别判断。对照真实 `sky.get_window_state` 的失败和成功结果后，才决定安装、保留或卸载。
+3. `manage.ps1 install` 只安装截图 DLL。`browser-proxy/` 通过固定系统配置传递已有代理；`native-runtime/` 通过官方 worker wrapper 加载 `windows-lifecycle/` 和 `capture-notify/`。这些修复分别验收。旧代理注入、自动窗口守卫和定时监控已撤销。
+4. 控制 Windows 原生应用前，完整读取本机 `~/.codex/docs/runbooks/windows-computer-use.md` 和已安装 computer-use Skill。使用官方 `node_repl + @oai/sky`。切换后台目标时显式激活一次；模态窗口出现后使用刚返回的状态，不反复重新绑定窗口。
+5. 内置浏览器、Chrome 和原生截图分别验收。查询被拒绝访问时状态是未知；不能隐藏错误，再把空结果判断为端口未监听。
+6. 完成本次 UI 动作和测试窗口清理后，已安装生命周期修复时执行 `await sky.end_turn()`，再重置脚本。脚本重置和 helper 进程存在均不能单独证明控制已释放；保持其他会话的共享 helper。生命周期核查见 README 的历史核查链接。
 
-- `capture-compat/`：Windows 10 x64 的 `version.dll`，处理截图接口和回调；不负责工具路由。
-- `proxy-env/`：在 `cua-repl` 动态导入前初始化 Node 代理；曾修复 `nodeRepl.fetch request failed`。默认代理见 `README.md`，当前安装值以状态输出为准。
-- `window-target-guard/`：旧版自动目标窗口守卫。它会使部分模态控件编号失效；统一 `manage.ps1 install` 会卸载本项目拥有的守卫。`targetWindowGuard.state = not-installed` 是预期状态。
-- `manage.ps1`：统一状态、安装、卸载和计划监控入口。监控仅提示状态变化，不会自动修复；不要仅凭提醒重装补丁。
+## 提醒和验证
 
-截至 2026-09-28 的实测：浏览器入口可用；原生应用须在切换目标时显式激活窗口，再读取截图。画图等应用的部分控件编号点击仍可能报缓存缺失，最新截图的窗口相对坐标或快捷键可作为替代。这里记录的是已知限制，不代表未来运行时的状态。
+提醒直接处理 CU 返回的原生截图结果。连续两次同类捕获错误须来自同一会话、间隔不超过十分钟；成功截图清除失败状态。版本、目录、哈希和 Issue 状态变化不触发提醒。没有定时任务、日志轮询或独立值守程序。加载器保留官方 sandbox 命令、参数、工作目录和协议。
 
-## 路由与验证
-
-先核对当前统一插件暴露的 surfaces。浏览器（Codex 内置浏览器、Chrome）使用浏览器入口；Windows 原生应用若仍无 `computer` surface，按已安装的 `computer-use` Skill 使用 `node_repl + @oai/sky`。本机若有 `$env:USERPROFILE\.codex\docs\runbooks\windows-computer-use.md`，控制原生应用前完整读取。切换后台窗口时，从 `sky.list_windows()` 选准确窗口，调用 `sky.activate_window`，稍候再读取状态。控件编号报缓存错误时，刷新状态并改用对应截图的坐标或快捷键，核对结果。
-
-修改统一管理流程后运行 `capture-compat/tests/manage_tests.ps1`；修改对应安装器后运行其目录下的 `tests/install_tests.ps1`。涉及 DLL 时按 `capture-compat/README.md` 构建、验证，并在可用的交互桌面做真实截图检查。自动测试、补丁状态和真实 CU 验证分别报告。
+管理入口修改后运行 `capture-compat/tests/manage_tests.ps1`。原生修复修改后运行 `node --test windows-lifecycle/tests.mjs capture-notify/tests.mjs native-runtime/tests.mjs`；设置 `CU_TEST_MODULES` 为实际 runtime 的 `bin/node_modules`，验证当前官方客户端。安装器修改后运行对应安装测试；DLL 源码修改后按该目录 README 构建并验证。实机分别验证截图、正常释放、物理 Esc 和桌面提醒。保留直接证据。

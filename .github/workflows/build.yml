@@ -54,6 +54,18 @@ jobs:
       - name: Test installation and removal
         run: .\capture-compat\tests\install_tests.ps1
 
+      - name: Test runtime selection
+        run: |
+          .\capture-compat\tests\manage_tests.ps1
+
+      - name: Test optional runtime repairs
+        run: |
+          $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
+          & $nodePath --test .\windows-lifecycle\tests.mjs .\capture-notify\tests.mjs .\native-runtime\tests.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Native lifecycle and notification tests failed.' }
+          .\native-runtime\install-tests.ps1
+          .\browser-proxy\persistent-tests.ps1 -NodePath $nodePath
+
       - name: Package binaries, source, and documentation
         env:
           PACKAGE_VERSION: ${{ steps.version.outputs.version }}
